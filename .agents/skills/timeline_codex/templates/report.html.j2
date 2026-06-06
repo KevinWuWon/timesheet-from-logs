@@ -1,0 +1,813 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Codex Timeline · {{ week.iso_year }}-W{{ '%02d' % week.iso_week }}</title>
+<style>
+  :root {
+    --bg: #fafafa;
+    --surface: #ffffff;
+    --border: #e5e5e5;
+    --border-strong: #d4d4d4;
+    --text: #171717;
+    --text-dim: #737373;
+    --text-faint: #a3a3a3;
+    --idle: #f3f3f3;
+    --future: #fbfbfb;
+    --accent: #2563eb;
+    --mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 14px;
+    line-height: 1.5;
+    padding: 32px 24px 96px;
+  }
+  .container {
+    max-width: 960px;
+    margin: 0 auto;
+  }
+  /* ----- Header ----- */
+  .header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 16px;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 12px;
+    margin-bottom: 24px;
+  }
+  .header h1 {
+    font-size: 18px;
+    font-weight: 600;
+    margin: 0;
+    letter-spacing: -0.01em;
+  }
+  .header .sub {
+    color: var(--text-dim);
+    font-family: var(--mono);
+    font-size: 12px;
+  }
+  .nav a {
+    color: var(--text-dim);
+    text-decoration: none;
+    font-family: var(--mono);
+    font-size: 12px;
+    padding: 2px 8px;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+  }
+  .nav a:hover { color: var(--text); border-color: var(--border-strong); }
+  .nav .disabled { opacity: 0.35; pointer-events: none; }
+  /* ----- Totals ----- */
+  .totals-block {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 32px;
+    margin-bottom: 28px;
+  }
+  .totals-big {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+  }
+  .totals-big .num {
+    font-family: var(--mono);
+    font-size: 36px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    line-height: 1;
+  }
+  .totals-big .label { color: var(--text-dim); font-size: 12px; }
+  .totals-big .auto-suffix { color: var(--text-faint); font-size: 12px; font-family: var(--mono); }
+  body.show-auto .auto-suffix { color: var(--text-dim); }
+  body:not(.show-auto) .auto-suffix { display: none; }
+  .project-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text-dim);
+  }
+  .project-list .row {
+    display: grid;
+    grid-template-columns: 14px 12px 1fr auto auto;
+    gap: 8px;
+    align-items: center;
+    cursor: pointer;
+  }
+  .project-list .row input[type="checkbox"] { margin: 0; }
+  .project-list .row.disabled { opacity: 0.4; }
+  .project-list .swatch {
+    width: 10px; height: 10px; border-radius: 2px;
+  }
+  .project-list .hours { color: var(--text); }
+  .project-list .pct { color: var(--text-faint); width: 36px; text-align: right; }
+  /* ----- Toggle ----- */
+  .controls {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 16px;
+    padding: 10px 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-size: 13px;
+  }
+  .controls label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    user-select: none;
+  }
+  .controls .hint {
+    color: var(--text-faint);
+    font-size: 11px;
+    margin-left: auto;
+  }
+  /* ----- Daily TSV ----- */
+  .daily {
+    margin-bottom: 24px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .daily-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+    font-size: 12px;
+    color: var(--text-dim);
+    font-family: var(--mono);
+  }
+  .daily-grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+  }
+  .daily-grid .cell {
+    text-align: center;
+    padding: 12px 8px;
+    border-right: 1px solid var(--border);
+    font-family: var(--mono);
+  }
+  .daily-grid .cell:last-child { border-right: none; }
+  .daily-grid .day { font-size: 11px; color: var(--text-faint); margin-bottom: 4px; }
+  .daily-grid .hours { font-size: 16px; font-weight: 500; }
+  .daily-grid .hours.zero { color: var(--text-faint); font-weight: 400; }
+  .daily-grid .auto-hours {
+    font-size: 10px;
+    color: var(--text-faint);
+    margin-top: 2px;
+    display: none;
+  }
+  .daily-grid .summary {
+    font-family: var(--sans);
+    font-size: 11px;
+    line-height: 1.4;
+    color: var(--text-dim);
+    margin-top: 8px;
+    text-align: left;
+    word-break: break-word;
+    min-height: 1.4em;
+  }
+  .daily-grid .summary:empty::before {
+    content: '—';
+    color: var(--text-faint);
+  }
+  body.show-auto .daily-grid .auto-hours { display: block; }
+  button.copy-btn {
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 3px 10px;
+    background: var(--surface);
+    color: var(--text);
+    border: 1px solid var(--border-strong);
+    border-radius: 3px;
+    cursor: pointer;
+  }
+  button.copy-btn:hover { background: #f5f5f5; }
+  button.copy-btn:active { background: #ececec; }
+  /* ----- Week grid ----- */
+  .grid-block {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 12px;
+    margin-bottom: 24px;
+    overflow-x: auto;
+  }
+  .grid-block .grid-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+    font-size: 12px;
+    color: var(--text-dim);
+    font-family: var(--mono);
+  }
+  .week-grid {
+    display: grid;
+    grid-template-columns: 40px 1fr;
+    gap: 4px;
+  }
+  .week-grid .day-label {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    text-align: right;
+    padding-right: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+  }
+  .week-grid .row {
+    display: grid;
+    grid-template-columns: repeat(48, 1fr);
+    gap: 1px;
+    min-width: 0;
+  }
+  .week-grid .cell {
+    aspect-ratio: 1.2 / 1;
+    background: var(--idle);
+    border-radius: 1px;
+    cursor: default;
+    position: relative;
+  }
+  .week-grid .cell.future {
+    background: var(--future);
+    background-image: repeating-linear-gradient(
+      135deg,
+      transparent 0 3px,
+      var(--idle) 3px 4px
+    );
+  }
+  .week-grid .cell.hands-on { background: var(--cell-color); cursor: pointer; }
+  .week-grid .cell.autonomous {
+    cursor: pointer;
+    background:
+      repeating-linear-gradient(
+        45deg,
+        var(--cell-color) 0 2px,
+        transparent 2px 4px
+      ),
+      color-mix(in srgb, var(--cell-color) 18%, var(--idle));
+  }
+  body:not(.show-auto) .week-grid .cell.autonomous { opacity: 0.55; }
+  .week-grid .cell.off { opacity: 0.12; cursor: default; }
+  .week-grid .cell.selected {
+    outline: 1.5px solid var(--text);
+    outline-offset: 1px;
+    z-index: 2;
+  }
+  .week-grid .hour-marks {
+    grid-column: 2;
+    display: grid;
+    grid-template-columns: repeat(48, 1fr);
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--text-faint);
+    margin-top: 2px;
+  }
+  .week-grid .hour-marks span {
+    grid-column: span 6;
+  }
+  /* ----- Tooltip ----- */
+  .tooltip {
+    position: fixed;
+    pointer-events: none;
+    background: var(--text);
+    color: #fff;
+    padding: 4px 8px;
+    border-radius: 3px;
+    font-family: var(--mono);
+    font-size: 11px;
+    white-space: nowrap;
+    z-index: 100;
+    opacity: 0;
+    transition: opacity 100ms;
+  }
+  .tooltip.visible { opacity: 1; }
+  /* ----- Session strip ----- */
+  .sessions {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .sessions .head {
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+    font-size: 12px;
+    color: var(--text-dim);
+    font-family: var(--mono);
+  }
+  .session-row {
+    display: grid;
+    grid-template-columns: 12px 100px 110px 60px 1fr 14px;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+    font-size: 13px;
+  }
+  .session-row.expanded { border-bottom-color: transparent; }
+  .session-row:last-child { border-bottom: none; }
+  .session-row:hover { background: #fafafa; }
+  .session-row.selected { background: #f0f7ff; }
+  .session-row .swatch { width: 10px; height: 10px; border-radius: 2px; }
+  .session-row .project { font-family: var(--mono); font-size: 12px; color: var(--text-dim); }
+  .session-row .day { font-family: var(--mono); font-size: 12px; color: var(--text-dim); }
+  .session-row .time { font-family: var(--mono); font-size: 12px; color: var(--text); }
+  .session-row .dur { font-family: var(--mono); font-size: 11px; color: var(--text-faint); }
+  .session-row .title { color: var(--text); }
+  .session-row .expand-icon {
+    font-family: var(--mono);
+    color: var(--text-faint);
+    font-size: 10px;
+    transition: transform 100ms;
+  }
+  .session-row.expanded .expand-icon { transform: rotate(90deg); }
+  .session-detail {
+    display: none;
+    padding: 12px 16px 16px 38px;
+    border-bottom: 1px solid var(--border);
+    background: #fcfcfc;
+  }
+  .session-detail.open { display: block; }
+  .session-detail .empty-msg {
+    color: var(--text-faint);
+    font-size: 12px;
+    font-family: var(--mono);
+  }
+  .session-detail .msg {
+    margin-bottom: 10px;
+    font-size: 12px;
+  }
+  .session-detail .msg-ts {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text-faint);
+    margin-right: 8px;
+  }
+  .session-detail .msg-text {
+    white-space: pre-wrap;
+    font-family: var(--mono);
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 6px 8px;
+    color: var(--text);
+    margin-top: 2px;
+    overflow-wrap: anywhere;
+  }
+  /* ----- Empty state ----- */
+  .empty {
+    text-align: center;
+    padding: 48px 24px;
+    color: var(--text-dim);
+  }
+  .empty .hint {
+    font-size: 12px;
+    margin-top: 8px;
+    font-family: var(--mono);
+    color: var(--text-faint);
+  }
+  /* ----- Toast ----- */
+  .toast {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--text);
+    color: #fff;
+    padding: 8px 16px;
+    border-radius: 4px;
+    font-family: var(--mono);
+    font-size: 12px;
+    opacity: 0;
+    transition: opacity 200ms;
+    pointer-events: none;
+    z-index: 200;
+  }
+  .toast.visible { opacity: 1; }
+  /* ----- Print ----- */
+  @media print {
+    body { background: #fff; padding: 12mm; }
+    .controls, button.copy-btn, .nav { display: none; }
+    .grid-block, .sessions, .daily { break-inside: avoid; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <div class="header">
+    <div>
+      <h1>Week {{ week.iso_year }}-W{{ '%02d' % week.iso_week }}</h1>
+      <div class="sub">
+        {{ week.start_date.strftime('%a %b %d') }} – {{ week.end_date.strftime('%a %b %d') }} · {{ week.tz_name }}
+        · {{ week.session_count }} session{% if week.session_count != 1 %}s{% endif %}
+        · Generated {{ week.generated_at }}
+      </div>
+    </div>
+    <div class="nav">
+      {% if prev_link %}<a href="{{ prev_link }}">← prev</a>{% else %}<a class="disabled">← prev</a>{% endif %}
+      {% if next_link %}<a href="{{ next_link }}">next →</a>{% else %}<a class="disabled">next →</a>{% endif %}
+    </div>
+  </div>
+
+  {% if week.session_count == 0 %}
+    <div class="empty">
+      No sessions in this range.
+      <div class="hint">Try <code>--week last</code> or <code>--week YYYY-MM-DD</code>.</div>
+    </div>
+  {% else %}
+
+  <div class="totals-block">
+    <div class="totals-big">
+      <span class="num" id="total-num">{{ week.total_hands_on | hours }}</span>
+      <span class="label">hours hands-on <span class="auto-suffix">+ {{ week.total_autonomous | hours }}h autonomous</span></span>
+    </div>
+    <div class="project-list">
+      {% for p in projects %}
+        {% set h_on = week.project_hands_on_hours.get(p, 0) %}
+        {% set h_auto = week.project_autonomous_hours.get(p, 0) %}
+        {% set total = h_on + h_auto %}
+        <label class="row">
+          <input type="checkbox" class="proj-cb" data-project="{{ p }}" checked>
+          <span class="swatch" style="background: {{ week.project_colors[p] }}"></span>
+          <span>{{ p }}</span>
+          <span class="hours"><span class="proj-hours" data-handson="{{ h_on }}" data-auto="{{ h_auto }}">{{ h_on | hours }}</span> h</span>
+          <span class="pct"></span>
+        </label>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="controls">
+    <label>
+      <input type="checkbox" id="show-auto"> Include autonomous Codex time in totals
+    </label>
+    <span class="hint">Hands-on = your messages. Autonomous = Codex-only (e.g. overnight runs).</span>
+  </div>
+
+  <div class="daily">
+    <div class="daily-header">
+      <span>Daily totals (hours)</span>
+      <span style="display:flex; gap:6px;">
+        <button class="copy-btn" onclick="copyDailyHoursTSV()" title="Copy 7 daily hour totals">Copy daily hours</button>
+        <button class="copy-btn" onclick="copyHalfHourTSV()" title="Copy 48 rows × 7 days, 1 = hands-on">Copy half-hour grid</button>
+      </span>
+    </div>
+    <div class="daily-grid">
+      {% for i in range(7) %}
+        <div class="cell">
+          <div class="day">{{ day_labels[i] }}</div>
+          <div class="hours{% if week.daily_hands_on[i] == 0 %} zero{% endif %}"
+               data-handson="{{ week.daily_hands_on[i] }}"
+               data-auto="{{ week.daily_autonomous[i] }}">
+            {{ week.daily_hands_on[i] | hours }}
+          </div>
+          {% if week.daily_autonomous[i] > 0 %}
+            <div class="auto-hours">+{{ week.daily_autonomous[i] | hours }} auto</div>
+          {% endif %}
+          <div class="summary" data-day="{{ i }}"></div>
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="grid-block">
+    <div class="grid-header">
+      <span>Half-hour grid · click cell to highlight session</span>
+    </div>
+    <div class="week-grid">
+      {% for d in range(7) %}
+        <div class="day-label">{{ day_labels[d] }}</div>
+        <div class="row" data-day="{{ d }}">
+          {% for cell in week.grid[d] %}
+            {% set color = cell.color if cell.color else '#777' %}
+            <div class="cell {{ cell.state | replace('_', '-') }}"
+                 data-day="{{ cell.day }}"
+                 data-hh="{{ cell.hh }}"
+                 data-state="{{ cell.state }}"
+                 data-project="{{ cell.project or '' }}"
+                 data-sessions="{{ cell.session_ids | join(',') }}"
+                 data-user="{{ cell.user_count }}"
+                 data-asst="{{ cell.assistant_count }}"
+                 {% if cell.state in ('hands_on', 'autonomous') %}style="--cell-color: {{ color }}"{% endif %}>
+            </div>
+          {% endfor %}
+        </div>
+      {% endfor %}
+      <div></div>
+      <div class="hour-marks">
+        {% for h in hour_marks %}<span>{{ '%02d' % h }}</span>{% endfor %}
+      </div>
+    </div>
+  </div>
+
+  <div class="sessions">
+    <div class="head">Sessions ({{ week.sessions | length }})</div>
+    {% for s in week.sessions %}
+      <div class="session-row" data-session-id="{{ s.id }}" data-project="{{ s.project }}" data-weekday="{{ s.weekday }}">
+        <span class="swatch" style="background: {{ s.color }}"></span>
+        <span class="project">{{ s.project }}</span>
+        <span class="day">{{ s.day_label }}</span>
+        <span class="time">{{ s.time_range }}</span>
+        <span class="title" title="{{ s.title }}">{{ s.title }}</span>
+        <span class="expand-icon">▶</span>
+      </div>
+      <div class="session-detail" data-session-id="{{ s.id }}">
+        {% if s.messages %}
+          {% for m in s.messages %}
+            <div class="msg">
+              <span class="msg-ts">{{ m.date }} {{ m.ts }}</span>
+              <div class="msg-text">{{ m.text }}</div>
+            </div>
+          {% endfor %}
+        {% else %}
+          <div class="empty-msg">No user messages in this session.</div>
+        {% endif %}
+      </div>
+    {% endfor %}
+  </div>
+
+  {% endif %}
+
+</div>
+
+<div class="tooltip" id="tooltip"></div>
+<div class="toast" id="toast"></div>
+
+<script>
+(function() {
+  const dayLabels = {{ day_labels | tojson }};
+  const DAILY_CHUNKS = {{ week.daily_summary_chunks | tojson }};
+  const showAutoCb = document.getElementById('show-auto');
+  if (!showAutoCb) return;
+
+  function fmt(h) { return h.toFixed(1); }
+  function enabledProjects() {
+    return new Set(
+      Array.from(document.querySelectorAll('.proj-cb:checked')).map(cb => cb.dataset.project)
+    );
+  }
+
+  // Recompute totals from cells, respecting project filter + autonomous toggle.
+  function recompute() {
+    const inclAuto = showAutoCb.checked;
+    document.body.classList.toggle('show-auto', inclAuto);
+    const enabled = enabledProjects();
+
+    // Per-project: half-hour counts of hands-on / autonomous
+    const perProj = new Map();  // project -> {h: count, a: count}
+    // Per-day totals (counts of half-hours)
+    const dayH = new Array(7).fill(0);
+    const dayA = new Array(7).fill(0);
+
+    document.querySelectorAll('.week-grid .cell').forEach(cell => {
+      const state = cell.dataset.state;
+      const proj = cell.dataset.project;
+      const day = parseInt(cell.dataset.day, 10);
+      const isEnabled = enabled.has(proj);
+      // Visual: dim cells whose project is unchecked
+      cell.classList.toggle('off', !!proj && !isEnabled);
+      if (!isEnabled) return;
+      if (state === 'hands_on') {
+        dayH[day] += 1;
+        if (!perProj.has(proj)) perProj.set(proj, {h: 0, a: 0});
+        perProj.get(proj).h += 1;
+      } else if (state === 'autonomous') {
+        dayA[day] += 1;
+        if (!perProj.has(proj)) perProj.set(proj, {h: 0, a: 0});
+        perProj.get(proj).a += 1;
+      }
+    });
+
+    let totalH = 0, totalA = 0;
+    perProj.forEach(v => { totalH += v.h; totalA += v.a; });
+
+    const totalH_h = totalH * 0.5;
+    const totalA_h = totalA * 0.5;
+    const grand = totalH_h + (inclAuto ? totalA_h : 0);
+
+    const numEl = document.getElementById('total-num');
+    if (numEl) numEl.textContent = fmt(grand);
+    const autoSuffix = document.querySelector('.auto-suffix');
+    if (autoSuffix) autoSuffix.textContent = '+ ' + fmt(totalA_h) + 'h autonomous';
+
+    // Per-project rows: update hours, pct, dim if unchecked
+    document.querySelectorAll('.project-list .row').forEach(row => {
+      const cb = row.querySelector('.proj-cb');
+      const p = cb.dataset.project;
+      const stats = perProj.get(p) || {h: 0, a: 0};
+      const v_h = stats.h * 0.5;
+      const v_a = stats.a * 0.5;
+      const v = v_h + (inclAuto ? v_a : 0);
+      const hoursEl = row.querySelector('.proj-hours');
+      if (hoursEl) {
+        hoursEl.dataset.handson = v_h;
+        hoursEl.dataset.auto = v_a;
+        hoursEl.textContent = fmt(v);
+      }
+      const pct = row.querySelector('.pct');
+      if (pct) pct.textContent = grand > 0 ? (Math.round(v / grand * 100) + '%') : '';
+      row.classList.toggle('disabled', !cb.checked);
+    });
+
+    // Daily totals
+    document.querySelectorAll('.daily-grid .cell').forEach((cellEl, i) => {
+      const hoursEl = cellEl.querySelector('.hours');
+      const autoEl = cellEl.querySelector('.auto-hours');
+      const v_h = dayH[i] * 0.5;
+      const v_a = dayA[i] * 0.5;
+      const v = v_h + (inclAuto ? v_a : 0);
+      hoursEl.textContent = fmt(v);
+      hoursEl.classList.toggle('zero', v === 0);
+      hoursEl.dataset.handson = v_h;
+      hoursEl.dataset.auto = v_a;
+      if (autoEl) {
+        if (v_a > 0) {
+          autoEl.textContent = '+' + fmt(v_a) + ' auto';
+          autoEl.style.display = '';
+        } else {
+          autoEl.style.display = 'none';
+        }
+      }
+    });
+
+    // Session row filter
+    document.querySelectorAll('.session-row').forEach(row => {
+      const show = enabled.has(row.dataset.project);
+      row.style.display = show ? '' : 'none';
+      const id = row.dataset.sessionId;
+      const detail = document.querySelector(`.session-detail[data-session-id="${id}"]`);
+      if (detail) detail.style.display = show ? '' : 'none';
+    });
+
+    // Per-day summary row — built from server-side per-day chunks, filtered
+    // by enabled projects, deduped per-day, no truncation.
+    for (let i = 0; i < 7; i++) {
+      const el = document.querySelector(`.daily-grid .summary[data-day="${i}"]`);
+      if (!el) continue;
+      const seen = new Set();
+      const unique = [];
+      for (const chunk of (DAILY_CHUNKS[i] || [])) {
+        if (!enabled.has(chunk.project)) continue;
+        const k = chunk.text.toLowerCase();
+        if (seen.has(k)) continue;
+        seen.add(k);
+        unique.push(chunk.text);
+      }
+      // Each chunk is either a rolled-up multi-bullet string or a single
+      // "• …" fallback. Join with a separator (the bullets are already there).
+      const s = unique.join(' ');
+      el.textContent = s;
+      el.dataset.summary = s;
+    }
+  }
+
+  showAutoCb.addEventListener('change', recompute);
+  document.querySelectorAll('.proj-cb').forEach(cb => cb.addEventListener('change', recompute));
+  recompute();
+
+  // ----- Tooltip
+  const tip = document.getElementById('tooltip');
+  function hhLabel(hh) {
+    const h = Math.floor(hh / 2), m = (hh % 2) * 30;
+    const h2 = (hh + 1) === 48 ? 24 : Math.floor((hh + 1) / 2);
+    const m2 = ((hh + 1) % 2) * 30;
+    const pad = n => n.toString().padStart(2, '0');
+    return pad(h) + ':' + pad(m) + '–' + pad(h2 % 24) + ':' + pad(m2);
+  }
+
+  document.querySelectorAll('.week-grid .cell').forEach(cell => {
+    cell.addEventListener('mousemove', e => {
+      const state = cell.dataset.state;
+      if (state === 'idle' || state === 'future') {
+        tip.classList.remove('visible');
+        return;
+      }
+      const day = parseInt(cell.dataset.day, 10);
+      const hh = parseInt(cell.dataset.hh, 10);
+      const proj = cell.dataset.project;
+      const text = `${proj} · ${dayLabels[day]} ${hhLabel(hh)} · ${state.replace('_', '-')}`;
+      tip.textContent = text;
+      tip.style.left = (e.clientX + 12) + 'px';
+      tip.style.top = (e.clientY + 12) + 'px';
+      tip.classList.add('visible');
+    });
+    cell.addEventListener('mouseleave', () => tip.classList.remove('visible'));
+    cell.addEventListener('click', () => {
+      const ids = cell.dataset.sessions;
+      if (!ids) return;
+      const idList = ids.split(',').filter(Boolean);
+      document.querySelectorAll('.week-grid .cell.selected').forEach(c => c.classList.remove('selected'));
+      cell.classList.add('selected');
+      document.querySelectorAll('.session-row').forEach(r => r.classList.remove('selected'));
+      let first = null;
+      idList.forEach(id => {
+        const row = document.querySelector(`.session-row[data-session-id="${id}"]`);
+        if (row) {
+          row.classList.add('selected');
+          if (!first) first = row;
+        }
+      });
+      if (first) first.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    });
+  });
+
+  // Session row click → toggle detail panel + highlight cells
+  document.querySelectorAll('.session-row').forEach(row => {
+    row.addEventListener('click', () => {
+      const id = row.dataset.sessionId;
+      const detail = document.querySelector(`.session-detail[data-session-id="${id}"]`);
+      const wasOpen = row.classList.contains('expanded');
+
+      // Toggle this row's detail panel
+      row.classList.toggle('expanded', !wasOpen);
+      if (detail) detail.classList.toggle('open', !wasOpen);
+
+      // Highlight cells for this session in the grid
+      document.querySelectorAll('.week-grid .cell.selected').forEach(c => c.classList.remove('selected'));
+      document.querySelectorAll('.session-row').forEach(r => r.classList.remove('selected'));
+      if (!wasOpen) {
+        row.classList.add('selected');
+        let firstCell = null;
+        document.querySelectorAll('.week-grid .cell').forEach(cell => {
+          const ids = (cell.dataset.sessions || '').split(',');
+          if (ids.includes(id)) {
+            cell.classList.add('selected');
+            if (!firstCell) firstCell = cell;
+          }
+        });
+      }
+    });
+  });
+
+  // ----- Toast / Copy
+  const toast = document.getElementById('toast');
+  function showToast(msg) {
+    toast.textContent = msg;
+    toast.classList.add('visible');
+    setTimeout(() => toast.classList.remove('visible'), 1500);
+  }
+
+  window.copyDailyHoursTSV = function() {
+    // Read currently rendered daily hours (already filtered by project + autonomous toggle)
+    const cells = document.querySelectorAll('.daily-grid .hours');
+    const values = Array.from(cells).map(el => el.textContent.trim());
+    const tsv = dayLabels.join('\t') + '\n' + values.join('\t');
+    navigator.clipboard.writeText(tsv).then(() => showToast('Copied 7 daily hours.'));
+  };
+
+  // 48 rows × 7 cols. Cell = "1" if any enabled project has hands-on (and,
+  // if "include autonomous" is on, also autonomous) in that bucket; else blank.
+  window.copyHalfHourTSV = function() {
+    const inclAuto = showAutoCb.checked;
+    const enabled = enabledProjects();
+    // grid[hh][day] = bool
+    const grid = Array.from({length: 48}, () => new Array(7).fill(false));
+    document.querySelectorAll('.week-grid .cell').forEach(cell => {
+      const state = cell.dataset.state;
+      const proj = cell.dataset.project;
+      const day = parseInt(cell.dataset.day, 10);
+      const hh = parseInt(cell.dataset.hh, 10);
+      if (!enabled.has(proj)) return;
+      if (state === 'hands_on' || (inclAuto && state === 'autonomous')) {
+        grid[hh][day] = true;
+      }
+    });
+    const rows = [];
+    rows.push(['', ...dayLabels].join('\t'));
+    for (let hh = 0; hh < 48; hh++) {
+      const time = hhLabel(hh).split('–')[0];
+      const cols = grid[hh].map(b => b ? '1' : '');
+      rows.push([time, ...cols].join('\t'));
+    }
+    // Append per-day summary row. Strip tabs/newlines from cell contents
+    // so TSV structure stays intact.
+    const summaries = Array.from(document.querySelectorAll('.daily-grid .summary'))
+      .map(el => (el.dataset.summary || el.textContent || '').replace(/[\t\r\n]+/g, ' ').trim());
+    rows.push(['summary', ...summaries].join('\t'));
+    navigator.clipboard.writeText(rows.join('\n')).then(() => showToast('Copied 48×7 grid + summary.'));
+  };
+})();
+</script>
+</body>
+</html>
