@@ -211,6 +211,16 @@ _PROGRAMMATIC_USER_PROMPT_PREFIXES = (
     "Autoreason Judge",
 )
 
+_PROGRAMMATIC_AUDIT_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("automation prompt", re.compile(r"^Automation:", re.IGNORECASE)),
+    ("approval transcript", re.compile(r"APPROVAL REQUEST START|planned action JSON", re.IGNORECASE)),
+    ("disabled model invocation", re.compile(r"disable-model-invocation", re.IGNORECASE)),
+    ("sub-agent prompt", re.compile(r"\bsub-agent\b|^You are investigating one\b", re.IGNORECASE)),
+    ("review wrapper wording", re.compile(r"^Review the code changes\b", re.IGNORECASE)),
+    ("delegation wrapper", re.compile(r"^<codex_delegation>", re.IGNORECASE)),
+    ("system wrapper", re.compile(r"^System instructions:", re.IGNORECASE)),
+)
+
 
 def _strip_system_content(text: str) -> str:
     """Remove system-injected XML blocks. Returns the user-typed remainder."""
@@ -311,6 +321,53 @@ def _is_programmatic_session(sess: Session) -> bool:
 
     text = sess.first_user_text.lstrip()
     return any(text.startswith(prefix) for prefix in _PROGRAMMATIC_USER_PROMPT_PREFIXES)
+
+
+def _programmatic_audit_reason(sess: Session) -> str | None:
+    """Return a best-effort reason when a surviving session looks generated.
+
+    This is intentionally softer than `_is_programmatic_session`: it reports
+    possible misses for review instead of excluding them from the timeline.
+    """
+    haystacks = [
+        sess.base_instructions.lstrip(),
+        sess.first_user_text.lstrip(),
+        "\n".join(m.get("text", "") for m in sess.user_messages[:5]),
+    ]
+    for label, pattern in _PROGRAMMATIC_AUDIT_PATTERNS:
+        if any(pattern.search(text) for text in haystacks if text):
+            return label
+    return None
+
+
+def _report_possible_programmatic_slips(sessions: list[Session], limit: int = 12) -> None:
+    findings: list[tuple[str, Session]] = []
+    seen_session_ids: set[str] = set()
+    for sess in sessions:
+        if sess.session_id in seen_session_ids:
+            continue
+        seen_session_ids.add(sess.session_id)
+        reason = _programmatic_audit_reason(sess)
+        if reason:
+            findings.append((reason, sess))
+
+    if not findings:
+        return
+
+    print(
+        f"Possible programmatic Codex session(s) still included: {len(findings)}",
+        file=sys.stderr,
+    )
+    for reason, sess in findings[:limit]:
+        title = " ".join((sess.first_user_text or sess.title).split())
+        if len(title) > 120:
+            title = title[:117] + "..."
+        print(
+            f"  - {sess.session_id[:8]} project={sess.project} reason={reason}: {title}",
+            file=sys.stderr,
+        )
+    if len(findings) > limit:
+        print(f"  ...and {len(findings) - limit} more", file=sys.stderr)
 
 
 def _is_relative_to(path: Path, root: Path) -> bool:
@@ -988,6 +1045,8 @@ def main() -> int:
         ws = {(y, w) for (y, w, _, _) in (s.user_buckets | s.assistant_buckets)}
         if ws & week_set:
             rel_sessions.append(s)
+    if not args.include_programmatic:
+        _report_possible_programmatic_slips(rel_sessions)
 
     # Summarize sessions (cached).
     if rel_sessions:

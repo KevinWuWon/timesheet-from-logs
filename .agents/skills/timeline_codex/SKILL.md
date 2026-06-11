@@ -11,6 +11,8 @@ The generator reads `session_meta.payload.cwd` first and returns before parsing 
 
 The generator excludes nested/programmatic Codex runs by default, including approval-reviewer sessions, Barnum/desloppify review wrappers, delegated sub-agents, and title-generation style prompts. Use `--include-programmatic` when those machine-spawned sessions should be shown explicitly.
 
+After filtering, the generator also audits the sessions that remain. If it prints `Possible programmatic Codex session(s) still included`, inspect the listed session IDs and prompts; the report was still generated, but those sessions may need a new detector rule or an intentional decision to keep them.
+
 For efficiency, summaries and visible transcript snippets are built only from real user messages. Assistant/tool records are scanned through a timestamp-only fast path so autonomous-time cells still work without decoding large response, reasoning, or tool payloads.
 
 ## Counting Rule
