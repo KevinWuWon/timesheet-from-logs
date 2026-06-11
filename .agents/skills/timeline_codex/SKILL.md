@@ -9,6 +9,8 @@ Generates a self-contained weekly HTML timeline from Codex JSONL logs in `~/.cod
 
 The generator reads `session_meta.payload.cwd` first and returns before parsing transcript messages when the recorded `cwd` is the current working directory or another git worktree of the same repository. When run from this repository, that specifically excludes `claude_work_hours` sessions and its Codex worktrees.
 
+The generator excludes nested/programmatic Codex runs by default, including approval-reviewer sessions, Barnum/desloppify review wrappers, delegated sub-agents, and title-generation style prompts. Use `--include-programmatic` when those machine-spawned sessions should be shown explicitly.
+
 For efficiency, summaries and visible transcript snippets are built only from real user messages. Assistant/tool records are scanned through a timestamp-only fast path so autonomous-time cells still work without decoding large response, reasoning, or tool payloads.
 
 ## Counting Rule
@@ -49,6 +51,7 @@ command uv run scripts/generate.py --last-4-weeks
 - `--out PATH` — output HTML path (default: `./outputs/timeline-codex-YYYY-Www.html`).
 - `--no-cache` — bypass the project-resolver + summary caches.
 - `--summary-workers N` — parallel `codex exec` workers (default 4).
+- `--include-programmatic` — include nested/programmatic Codex runs that are excluded by default.
 - `--open` — open the result in the default browser after writing.
 
 ## Preflight

@@ -50,6 +50,7 @@ class Session:
     file_path: Path
     project: str = "unknown"
     cwd: str | None = None
+    base_instructions: str = ""
     first_user_text: str = ""
     user_texts: list[str] = field(default_factory=list)
     # Per-local-date (YYYY-MM-DD) user texts, used for per-day summarization
@@ -195,6 +196,21 @@ _INTERNAL_SUMMARY_PROMPT_PREFIXES = (
     "You are consolidating a list of micro-summaries",
 )
 
+_PROGRAMMATIC_BASE_PREFIXES = (
+    "You are judging one planned coding-agent action.",
+)
+
+_PROGRAMMATIC_USER_PROMPT_PREFIXES = (
+    "The following is the Codex agent history whose request action you are assessing.",
+    "Review the code changes and return structured findings with a risk assessment.",
+    "Review the code changes and identify documentation gaps.",
+    "Review the code changes and identify any documentation gaps.",
+    "<codex_delegation>",
+    "System instructions:",
+    "You are a data collection sub-agent.",
+    "Autoreason Judge",
+)
+
 
 def _strip_system_content(text: str) -> str:
     """Remove system-injected XML blocks. Returns the user-typed remainder."""
@@ -279,6 +295,22 @@ def _is_assistant_activity(payload: dict) -> bool:
 def _is_internal_summary_session(sess: Session) -> bool:
     text = sess.first_user_text.lstrip()
     return any(text.startswith(prefix) for prefix in _INTERNAL_SUMMARY_PROMPT_PREFIXES)
+
+
+def _is_programmatic_session(sess: Session) -> bool:
+    """Return true for nested/non-interactive Codex runs.
+
+    These sessions are usually spawned by tools such as Barnum/desloppify,
+    approval review, title generation, or delegated sub-agents. They can be
+    useful artifacts of interactive work, but counting them as separate user
+    sessions double-counts the parent thread that launched them.
+    """
+    base = sess.base_instructions.lstrip()
+    if any(base.startswith(prefix) for prefix in _PROGRAMMATIC_BASE_PREFIXES):
+        return True
+
+    text = sess.first_user_text.lstrip()
+    return any(text.startswith(prefix) for prefix in _PROGRAMMATIC_USER_PROMPT_PREFIXES)
 
 
 def _is_relative_to(path: Path, root: Path) -> bool:
@@ -409,6 +441,11 @@ def parse_session(
                 if rtype == "session_meta":
                     payload = rec.get("payload")
                     if isinstance(payload, dict):
+                        base_instructions = payload.get("base_instructions")
+                        if isinstance(base_instructions, dict):
+                            text = base_instructions.get("text")
+                            if isinstance(text, str) and text and not sess.base_instructions:
+                                sess.base_instructions = text
                         sid = payload.get("id")
                         if isinstance(sid, str) and sid:
                             sess.session_id = sid
@@ -875,6 +912,8 @@ def main() -> int:
     parser.add_argument("--out", default=None, help="Output HTML path")
     parser.add_argument("--no-cache", action="store_true", help="Bypass project-resolver cache")
     parser.add_argument("--summary-workers", type=int, default=4, help="Parallel `codex exec` workers")
+    parser.add_argument("--include-programmatic", action="store_true",
+                        help="Include nested/programmatic Codex runs such as Barnum, approval reviewers, and sub-agents")
     parser.add_argument("--open", dest="open_browser", action="store_true", help="Open result in browser")
     args = parser.parse_args()
 
@@ -922,11 +961,15 @@ def main() -> int:
     session_files = list(discover_session_files(window_start, window_end))
     ignored_workspace_roots = _current_workspace_roots()
     sessions: list[Session] = []
+    programmatic_skipped = 0
     for f in session_files:
         s = parse_session(f, tz, ignored_workspace_roots)
         if s is None:
             continue
         if _is_internal_summary_session(s):
+            continue
+        if not args.include_programmatic and _is_programmatic_session(s):
+            programmatic_skipped += 1
             continue
         if _is_current_workspace_session(s, ignored_workspace_roots):
             continue
@@ -934,6 +977,9 @@ def main() -> int:
         if s.first_local and s.last_local:
             sessions.append(s)
     resolver.flush()
+
+    if programmatic_skipped:
+        print(f"Skipped {programmatic_skipped} programmatic Codex session(s)", file=sys.stderr)
 
     # Filter to sessions that touch any requested week
     week_set = set(weeks)
