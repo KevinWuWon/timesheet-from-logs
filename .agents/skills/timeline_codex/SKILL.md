@@ -1,6 +1,6 @@
 ---
 name: timeline_codex
-description: Generate weekly HTML timelines from Codex session logs in ~/.codex/sessions and ~/.codex/archived_sessions. Use when user asks "what did I work on this week", wants to fill out a timesheet, needs hours-per-project breakdown, or asks to visualize/summarize Codex session activity. Groups by project (collapsing worktrees), shows half-hour grid in local timezone, distinguishes hands-on time from autonomous Codex runs.
+description: Generate weekly HTML timelines from Codex session logs in ~/.codex/sessions and ~/.codex/archived_sessions. Use when user asks "what did I work on this week", wants to fill out a timesheet, needs hours-per-project breakdown, or asks to visualize/summarize Codex session activity. Before running, require a clear target week or date range; if missing, ask the user and suggest the previous full week. Groups by project (collapsing worktrees), shows half-hour grid in local timezone, distinguishes hands-on time from autonomous Codex runs.
 ---
 
 # Codex Timeline Generator
@@ -19,11 +19,13 @@ The day is divided into 10-minute activity segments. Each visible half-hour grid
 
 ## Usage
 
+Do not run the generator until the requested week or date range is clear. If the user has not specified one, ask which week to generate and suggest the previous full Monday-Sunday week in the user's local timezone.
+
 Run from the user's current directory (output goes to `./outputs/` unless `--out` is set):
 
-**Current week (default):**
+**Previous full week (recommended when the user has no preference):**
 ```bash
-command uv run scripts/generate.py
+command uv run scripts/generate.py --week last
 ```
 
 **Specific week (any date in that ISO week):**

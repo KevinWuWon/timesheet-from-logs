@@ -1,6 +1,6 @@
 ---
 name: timeline_claude
-description: Generate weekly HTML timelines from Claude Code session logs in ~/.claude/projects. Use when user asks "what did I work on this week", wants to fill out a timesheet, needs hours-per-project breakdown, or asks to visualize/summarize Claude session activity. Groups by project (collapsing worktrees), shows half-hour grid in local timezone, distinguishes hands-on time from autonomous Claude runs.
+description: Generate weekly HTML timelines from Claude Code session logs in ~/.claude/projects. Use when user asks "what did I work on this week", wants to fill out a timesheet, needs hours-per-project breakdown, or asks to visualize/summarize Claude session activity. Before running, require a clear target week or date range; if missing, ask the user and suggest the previous full week. Groups by project (collapsing worktrees), shows half-hour grid in local timezone, distinguishes hands-on time from autonomous Claude runs.
 ---
 
 # Claude Timeline Generator
@@ -17,11 +17,13 @@ The day is divided into 10-minute activity segments. Each visible half-hour grid
 
 ## Usage
 
+Do not run the generator until the requested week or date range is clear. If the user has not specified one, ask which week to generate and suggest the previous full Monday-Sunday week in the user's local timezone.
+
 Run from the user's current directory (output goes to `./outputs/` unless `--out` is set):
 
-**Current week (default):**
+**Previous full week (recommended when the user has no preference):**
 ```bash
-command uv run scripts/generate.py
+command uv run scripts/generate.py --week last
 ```
 
 **Specific week (any date in that ISO week):**
