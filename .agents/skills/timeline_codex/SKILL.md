@@ -9,6 +9,8 @@ Generates a self-contained weekly HTML timeline from Codex JSONL logs in `~/.cod
 
 The generator reads `session_meta.payload.cwd` first and returns before parsing transcript messages when the recorded `cwd` is the current working directory or another git worktree of the same repository. When run from this repository, that specifically excludes `claude_work_hours` sessions and its Codex worktrees.
 
+For efficiency, summaries and visible transcript snippets are built only from real user messages. Assistant/tool records are scanned through a timestamp-only fast path so autonomous-time cells still work without decoding large response, reasoning, or tool payloads.
+
 ## Counting Rule
 
 The day is divided into 10-minute activity segments. Each visible half-hour grid cell contains three 10-minute segments. Segment counts are tracked separately per project: a cell counts as hands-on only when the same project has user activity in at least two of those three segments. If hands-on does not qualify, the cell counts as autonomous only when the same project has assistant activity in at least two of the three segments.

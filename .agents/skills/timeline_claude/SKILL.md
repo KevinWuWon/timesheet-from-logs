@@ -9,6 +9,8 @@ Generates a self-contained weekly HTML timeline from Claude Code JSONL logs in `
 
 The generator ignores Claude transcripts whose recorded `cwd` is the current working directory or another git worktree of the same repository, so timeline-generation and skill-development chats do not appear in the report.
 
+For efficiency, summaries and visible transcript snippets are built only from real user messages. Assistant records are scanned through a timestamp-only fast path so autonomous-time cells still work without decoding large assistant payloads.
+
 ## Counting Rule
 
 The day is divided into 10-minute activity segments. Each visible half-hour grid cell contains three 10-minute segments. Segment counts are tracked separately per project: a cell counts as hands-on only when the same project has user activity in at least two of those three segments. If hands-on does not qualify, the cell counts as autonomous only when the same project has assistant activity in at least two of the three segments.

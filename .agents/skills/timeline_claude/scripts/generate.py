@@ -283,6 +283,27 @@ def _parse_ts(ts: str) -> datetime | None:
         return None
 
 
+def _line_has_json_string(line: str, key: str, value: str) -> bool:
+    return re.search(
+        rf'"{re.escape(key)}"\s*:\s*"{re.escape(value)}"',
+        line,
+    ) is not None
+
+
+def _line_json_string_value(line: str, key: str) -> str | None:
+    match = re.search(
+        rf'"{re.escape(key)}"\s*:\s*("(?:\\.|[^"\\])*")',
+        line,
+    )
+    if not match:
+        return None
+    try:
+        value = json.loads(match.group(1))
+    except json.JSONDecodeError:
+        return None
+    return value if isinstance(value, str) else None
+
+
 def parse_session(file_path: Path, tz: ZoneInfo) -> Session | None:
     sess = Session(session_id=file_path.stem, file_path=file_path)
     try:
@@ -291,6 +312,32 @@ def parse_session(file_path: Path, tz: ZoneInfo) -> Session | None:
                 line = line.strip()
                 if not line:
                     continue
+
+                # Assistant messages can be very large. For timeline activity
+                # we only need their timestamp bucket and cwd, so avoid full
+                # JSON decoding unless the record can affect summaries.
+                if _line_has_json_string(line, "type", "assistant"):
+                    ts_utc = _parse_ts(_line_json_string_value(line, "timestamp") or "")
+                    if not ts_utc:
+                        continue
+                    ts_local = ts_utc.astimezone(tz)
+                    cwd = _line_json_string_value(line, "cwd")
+                    if cwd and not sess.cwd:
+                        sess.cwd = cwd
+                    sess.assistant_count += 1
+                    sess.assistant_buckets.add(bucket_key(ts_local))
+                    if sess.first_local is None or ts_local < sess.first_local:
+                        sess.first_local = ts_local
+                    if sess.last_local is None or ts_local > sess.last_local:
+                        sess.last_local = ts_local
+                    continue
+
+                if not (
+                    _line_has_json_string(line, "type", "user")
+                    or _line_has_json_string(line, "type", "summary")
+                ):
+                    continue
+
                 try:
                     rec = json.loads(line)
                 except json.JSONDecodeError:
@@ -340,11 +387,6 @@ def parse_session(file_path: Path, tz: ZoneInfo) -> Session | None:
                         })
                     key = bucket_key(ts_local)
                     sess.user_buckets.add(key)
-                elif rtype == "assistant":
-                    sess.assistant_count += 1
-                    key = bucket_key(ts_local)
-                    sess.assistant_buckets.add(key)
-
                 if sess.first_local is None or ts_local < sess.first_local:
                     sess.first_local = ts_local
                 if sess.last_local is None or ts_local > sess.last_local:

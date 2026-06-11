@@ -334,6 +334,36 @@ def _parse_ts(ts: str) -> datetime | None:
         return None
 
 
+def _line_has_json_string(line: str, key: str, value: str) -> bool:
+    return re.search(
+        rf'"{re.escape(key)}"\s*:\s*"{re.escape(value)}"',
+        line,
+    ) is not None
+
+
+def _line_json_string_value(line: str, key: str) -> str | None:
+    match = re.search(
+        rf'"{re.escape(key)}"\s*:\s*("(?:\\.|[^"\\])*")',
+        line,
+    )
+    if not match:
+        return None
+    try:
+        value = json.loads(match.group(1))
+    except json.JSONDecodeError:
+        return None
+    return value if isinstance(value, str) else None
+
+
+def _line_is_assistant_activity(line: str) -> bool:
+    return (
+        _line_has_json_string(line, "role", "assistant")
+        or _line_has_json_string(line, "type", "function_call")
+        or _line_has_json_string(line, "type", "function_call_output")
+        or _line_has_json_string(line, "type", "reasoning")
+    )
+
+
 def parse_session(
     file_path: Path,
     tz: ZoneInfo,
@@ -347,6 +377,28 @@ def parse_session(
                 line = line.strip()
                 if not line:
                     continue
+
+                if _line_has_json_string(line, "type", "response_item"):
+                    # User records still need full parsing for filtering,
+                    # redaction, and summaries. Assistant/tool records only
+                    # contribute timestamp buckets for autonomous activity.
+                    if not _line_has_json_string(line, "role", "user"):
+                        if not _line_is_assistant_activity(line):
+                            continue
+                        ts_utc = _parse_ts(_line_json_string_value(line, "timestamp") or "")
+                        if not ts_utc:
+                            continue
+                        ts_local = ts_utc.astimezone(tz)
+                        sess.assistant_count += 1
+                        sess.assistant_buckets.add(bucket_key(ts_local))
+                        if sess.first_local is None or ts_local < sess.first_local:
+                            sess.first_local = ts_local
+                        if sess.last_local is None or ts_local > sess.last_local:
+                            sess.last_local = ts_local
+                        continue
+                elif not _line_has_json_string(line, "type", "session_meta"):
+                    continue
+
                 try:
                     rec = json.loads(line)
                 except json.JSONDecodeError:
@@ -400,10 +452,6 @@ def parse_session(
                         })
                     key = bucket_key(ts_local)
                     sess.user_buckets.add(key)
-                elif _is_assistant_activity(payload):
-                    sess.assistant_count += 1
-                    key = bucket_key(ts_local)
-                    sess.assistant_buckets.add(key)
                 else:
                     continue
 
