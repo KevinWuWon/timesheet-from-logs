@@ -10,6 +10,7 @@ import concurrent.futures
 from hashlib import sha1
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -92,6 +93,21 @@ Rules:
 - No quotes. No leading "summary:" or similar. No trailing period. Just the line.
 """
 
+_USER_MSG_RE = re.compile(r"^\[user msg \d+\]\s*(.+)$", re.MULTILINE)
+
+
+def _offline_summary_from_prompt(prompt: str) -> str:
+    """Return a deterministic local summary when external model calls are disabled."""
+    messages = [m.strip() for m in _USER_MSG_RE.findall(prompt) if m.strip()]
+    text = messages[0] if messages else "Codex session activity"
+    text = re.sub(r"\s+", " ", text)
+    text = re.sub(r"^(please\s+)?(can you\s+)?", "", text, flags=re.IGNORECASE).strip()
+    words = text.split()
+    summary = " ".join(words[:14])
+    if len(words) > 14:
+        summary += "..."
+    return summary.rstrip(".").strip() or "Codex session activity"
+
 
 def _load_cache() -> dict[str, str]:
     if CACHE_PATH.exists():
@@ -135,6 +151,9 @@ def _run_codex(prompt: str, timeout: int = 180) -> tuple[str | None, str | None]
 
     Returns (summary, None) on success, (None, "reason") on failure.
     """
+    if os.environ.get("TIMELINE_CODEX_OFFLINE_SUMMARIES") == "1":
+        return _offline_summary_from_prompt(prompt), None
+
     tmp_path: Path | None = None
     try:
         with tempfile.NamedTemporaryFile(prefix="timeline-codex-summary-", suffix=".txt", delete=False) as tmp:

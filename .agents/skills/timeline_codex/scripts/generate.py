@@ -201,8 +201,10 @@ _PROGRAMMATIC_BASE_PREFIXES = (
 )
 
 _PROGRAMMATIC_USER_PROMPT_PREFIXES = (
+    "Automation:",
     "The following is the Codex agent history whose request action you are assessing.",
     "Review the code changes and return structured findings with a risk assessment.",
+    "Review the code changes and identify any remaining documentation gaps.",
     "Review the code changes and identify documentation gaps.",
     "Review the code changes and identify any documentation gaps.",
     "<codex_delegation>",
@@ -320,7 +322,17 @@ def _is_programmatic_session(sess: Session) -> bool:
         return True
 
     text = sess.first_user_text.lstrip()
-    return any(text.startswith(prefix) for prefix in _PROGRAMMATIC_USER_PROMPT_PREFIXES)
+    if any(text.startswith(prefix) for prefix in _PROGRAMMATIC_USER_PROMPT_PREFIXES):
+        return True
+
+    early_user_text = "\n".join(m.get("text", "") for m in sess.user_messages[:5])
+    return any(
+        pattern.search(text)
+        for label, pattern in _PROGRAMMATIC_AUDIT_PATTERNS
+        if label in {"disabled model invocation"}
+        for text in (sess.first_user_text, early_user_text)
+        if text
+    )
 
 
 def _programmatic_audit_reason(sess: Session) -> str | None:
